@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,23 +10,21 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-const nodemailer = require('nodemailer');
 
-// Configure your email service transporter
-// (Example using Gmail. For production, use environment variables like process.env.EMAIL_USER)
+// Email Transporter (uses environment variables or fallback)
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: 'your-email@gmail.com',        // Replace with your email address
-    pass: 'your-app-password-here'       // Replace with a Google App Password (not your normal password)
+    user: process.env.EMAIL_USER || 'your-email@gmail.com',
+    pass: process.env.EMAIL_PASS || 'your-app-password-here'
   }
 });
 
-// Initialize SQLite Database (creates travels.db automatically)
+// Initialize SQLite Database
 const db = new DatabaseSync('travels.db');
 db.exec('PRAGMA foreign_keys = ON;');
 
-// 1. Create Database Tables
+// 1. Create Tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS packages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,9 +61,8 @@ db.exec(`
   );
 `);
 
-// 2. Seed Initial Tour Packages (runs only once when DB is empty)
+// 2. Seed Initial Packages
 const countPackages = db.prepare('SELECT COUNT(*) AS count FROM packages').get();
-
 if (countPackages.count === 0) {
   const insertPkg = db.prepare(`
     INSERT INTO packages (
@@ -203,7 +201,7 @@ if (countPackages.count === 0) {
 
 // ==================== API ROUTES ====================
 
-// GET /api/packages - Fetch all packages (supports ?category=...&search=...)
+// GET /api/packages
 app.get('/api/packages', (req, res) => {
   try {
     const { category, search } = req.query;
@@ -238,7 +236,7 @@ app.get('/api/packages', (req, res) => {
   }
 });
 
-// POST /api/bookings - Create booking and send confirmation email
+// POST /api/bookings
 app.post('/api/bookings', async (req, res) => {
   try {
     const {
@@ -277,7 +275,7 @@ app.post('/api/bookings', async (req, res) => {
       totalAmount, paymentMethod || 'M-Pesa', specialRequests ? specialRequests.trim() : ''
     );
 
-    // ==================== SEND CONFIRMATION EMAIL ====================
+    // Send Email notification
     const mailOptions = {
       from: '"Savanna & Beyond Travels" <no-reply@savannatravels.com>',
       to: customerEmail.trim(),
@@ -285,37 +283,24 @@ app.post('/api/bookings', async (req, res) => {
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
           <h2 style="color: #0B1D3A; margin-top: 0;">Jambo, ${customerName}!</h2>
-          <p style="color: #475569;">Thank you for booking with <strong>Savanna & Beyond Travels</strong>. Your reservation has been successfully confirmed and saved to our system.</p>
-          
+          <p style="color: #475569;">Thank you for booking with <strong>Savanna & Beyond Travels</strong>. Your reservation has been confirmed.</p>
           <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin: 20px 0;">
-            <p style="margin: 4px 0; color: #1e293b;"><strong>Reference Code:</strong> <span style="font-family: monospace; color: #0F766E; font-size: 16px;">${referenceCode}</span></p>
-            <p style="margin: 4px 0; color: #1e293b;"><strong>Package:</strong> ${pkg.title}</p>
-            <p style="margin: 4px 0; color: #1e293b;"><strong>Destination:</strong> ${pkg.destination}</p>
-            <p style="margin: 4px 0; color: #1e293b;"><strong>Travel Date:</strong> ${travelDate}</p>
-            <p style="margin: 4px 0; color: #1e293b;"><strong>Guests:</strong> ${guestCount}</p>
-            <p style="margin: 4px 0; color: #1e293b;"><strong>Total Amount:</strong> ${selectedCurrency} ${Number(totalAmount).toLocaleString()}</p>
-            <p style="margin: 4px 0; color: #1e293b;"><strong>Payment Method:</strong> ${paymentMethod || 'M-Pesa'}</p>
+            <p style="margin: 4px 0;"><strong>Reference Code:</strong> ${referenceCode}</p>
+            <p style="margin: 4px 0;"><strong>Package:</strong> ${pkg.title}</p>
+            <p style="margin: 4px 0;"><strong>Travel Date:</strong> ${travelDate}</p>
+            <p style="margin: 4px 0;"><strong>Total Amount:</strong> ${selectedCurrency} ${Number(totalAmount).toLocaleString()}</p>
           </div>
-
-          <p style="color: #475569; font-size: 14px;">Our concierge team will reach out via phone/WhatsApp (${customerPhone}) 48 hours prior to your trip.</p>
-          <p style="color: #94a3b8; font-size: 12px; margin-top: 30px; border-top: 1px solid #e2e8f0; pt-4;">Savanna & Beyond Travels • Nairobi & Mombasa, Kenya</p>
         </div>
       `
     };
 
-    // Send email asynchronously (won't block the API response if mail takes a moment)
-    transporter.sendMail(mailOptions, (error, info) => {
-      if (error) {
-        console.error('Error sending confirmation email:', error);
-      } else {
-        console.log('Confirmation email sent:', info.response);
-      }
+    transporter.sendMail(mailOptions, (error) => {
+      if (error) console.error('Email error (skipping if unconfigured):', error.message);
     });
-    // ================================================================
 
     res.status(201).json({
       success: true,
-      message: 'Booking confirmed and confirmation email sent!',
+      message: 'Booking confirmed and saved!',
       booking: {
         id: Number(result.lastInsertRowid),
         referenceCode,
@@ -336,58 +321,7 @@ app.post('/api/bookings', async (req, res) => {
   }
 });
 
-    // Generate unique booking reference (e.g., SB-2026-8F4A2B)
-    const randomHex = crypto.randomBytes(3).toString('hex').toUpperCase();
-    const referenceCode = `SB-${new Date().getFullYear()}-${randomHex}`;
-
-    const insertBooking = db.prepare(`
-      INSERT INTO bookings (
-        reference_code, package_id, customer_name, customer_email, customer_phone,
-        travel_date, guests, currency, total_amount, payment_method, special_requests
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const result = insertBooking.run(
-      referenceCode,
-      pkg.id,
-      customerName.trim(),
-      customerEmail.trim(),
-      customerPhone.trim(),
-      travelDate,
-      guestCount,
-      selectedCurrency,
-      totalAmount,
-      paymentMethod || 'M-Pesa',
-      specialRequests ? specialRequests.trim() : ''
-    );
-
-    res.status(201).json({
-      success: true,
-      message: 'Booking confirmed and saved to database!',
-      booking: {
-        id: Number(result.lastInsertRowid),
-        referenceCode,
-        packageTitle: pkg.title,
-        destination: pkg.destination,
-        duration: pkg.duration,
-        customerName: customerName.trim(),
-        customerEmail: customerEmail.trim(),
-        customerPhone: customerPhone.trim(),
-        travelDate,
-        guests: guestCount,
-        currency: selectedCurrency,
-        totalAmount,
-        paymentMethod: paymentMethod || 'M-Pesa',
-        status: 'CONFIRMED'
-      }
-    });
-  } catch (err) {
-    console.error('Error creating booking:', err);
-    res.status(500).json({ success: false, message: 'Server error while saving booking.' });
-  }
-});
-
-// GET /api/bookings/:reference - Look up an existing booking receipt by reference code
+// GET /api/bookings/:reference
 app.get('/api/bookings/:reference', (req, res) => {
   try {
     const ref = req.params.reference.trim().toUpperCase();
@@ -404,13 +338,12 @@ app.get('/api/bookings/:reference', (req, res) => {
 
     res.json({ success: true, booking });
   } catch (err) {
-    console.error('Error fetching booking:', err);
     res.status(500).json({ success: false, message: 'Failed to retrieve booking.' });
   }
 });
 
-// GET /api/bookings - View all bookings (useful for your Admin / management checks)
-app.get('/api/bookings', (req, res) => {
+// GET /api/admin/bookings
+app.get('/api/admin/bookings', (req, res) => {
   try {
     const bookings = db.prepare(`
       SELECT b.*, p.title AS package_title, p.destination
@@ -418,45 +351,7 @@ app.get('/api/bookings', (req, res) => {
       JOIN packages p ON b.package_id = p.id
       ORDER BY b.created_at DESC
     `).all();
-    res.json({ success: true, count: bookings.length, data: bookings });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to fetch bookings list.' });
-  }
-});
 
-// Fallback to index.html
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-app.listen(PORT, () => {
-  console.log(`🌍 Savanna & Beyond Travels running at http://localhost:${PORT}`);
-});
-// GET /api/admin/bookings - Fetch all bookings with package details for admin review
-app.get('/api/admin/bookings', (req, res) => {
-  try {
-    const bookings = db.prepare(`
-      SELECT 
-        b.id,
-        b.reference_code,
-        b.customer_name,
-        b.customer_email,
-        b.customer_phone,
-        b.travel_date,
-        b.guests,
-        b.currency,
-        b.total_amount,
-        b.payment_method,
-        b.status,
-        b.created_at,
-        p.title AS package_title,
-        p.destination
-      FROM bookings b
-      JOIN packages p ON b.package_id = p.id
-      ORDER BY b.created_at DESC
-    `).all();
-
-    // Calculate quick metrics
     const totalBookings = bookings.length;
     const totalRevenueUSD = bookings
       .filter(b => b.currency === 'USD' && b.status === 'CONFIRMED')
@@ -467,25 +362,19 @@ app.get('/api/admin/bookings', (req, res) => {
 
     res.json({
       success: true,
-      metrics: {
-        totalBookings,
-        totalRevenueUSD,
-        totalRevenueKES
-      },
+      metrics: { totalBookings, totalRevenueUSD, totalRevenueKES },
       data: bookings
     });
   } catch (err) {
-    console.error('Error fetching admin bookings:', err);
-    res.status(500).json({ success: false, message: 'Failed to load admin dashboard data.' });
+    res.status(500).json({ success: false, message: 'Failed to load admin data.' });
   }
 });
 
-// PATCH /api/admin/bookings/:id/status - Update booking status
+// PATCH /api/admin/bookings/:id/status
 app.patch('/api/admin/bookings/:id/status', (req, res) => {
   try {
     const bookingId = req.params.id;
     const { status } = req.body;
-
     const validStatuses = ['CONFIRMED', 'COMPLETED', 'CANCELLED'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid status value.' });
@@ -500,7 +389,15 @@ app.patch('/api/admin/bookings/:id/status', (req, res) => {
 
     res.json({ success: true, message: `Booking status updated to ${status}.` });
   } catch (err) {
-    console.error('Error updating status:', err);
-    res.status(500).json({ success: false, message: 'Failed to update booking status.' });
+    res.status(500).json({ success: false, message: 'Failed to update status.' });
   }
+});
+
+// Fallback to index.html
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`🌍 Savanna & Beyond Travels running at http://localhost:${PORT}`);
 });
