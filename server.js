@@ -2,23 +2,17 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Initialize Resend with environment variable API key
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 // Middleware
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-
-// Email Transporter (uses environment variables or fallback)
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER || 'your-email@gmail.com',
-    pass: process.env.EMAIL_PASS || 'your-app-password-here'
-  }
-});
 
 // Initialize SQLite Database
 const db = new DatabaseSync('travels.db');
@@ -275,28 +269,35 @@ app.post('/api/bookings', async (req, res) => {
       totalAmount, paymentMethod || 'M-Pesa', specialRequests ? specialRequests.trim() : ''
     );
 
-    // Send Email notification
-    const mailOptions = {
-      from: '"Savanna & Beyond Travels" <no-reply@savannatravels.com>',
-      to: customerEmail.trim(),
-      subject: `Booking Confirmed: ${pkg.title} (${referenceCode})`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
-          <h2 style="color: #0B1D3A; margin-top: 0;">Jambo, ${customerName}!</h2>
-          <p style="color: #475569;">Thank you for booking with <strong>Savanna & Beyond Travels</strong>. Your reservation has been confirmed.</p>
-          <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin: 20px 0;">
-            <p style="margin: 4px 0;"><strong>Reference Code:</strong> ${referenceCode}</p>
-            <p style="margin: 4px 0;"><strong>Package:</strong> ${pkg.title}</p>
-            <p style="margin: 4px 0;"><strong>Travel Date:</strong> ${travelDate}</p>
-            <p style="margin: 4px 0;"><strong>Total Amount:</strong> ${selectedCurrency} ${Number(totalAmount).toLocaleString()}</p>
-          </div>
-        </div>
-      `
-    };
+    // Send Email notification via Resend API
+    try {
+      await resend.emails.send({
+        from: 'Savanna & Beyond <onboarding@resend.dev>',
+        to: customerEmail.trim(),
+        subject: `Booking Confirmed: ${pkg.title} (${referenceCode})`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
+            <h2 style="color: #0B1D3A; margin-top: 0;">Jambo, ${customerName}!</h2>
+            <p style="color: #475569;">Thank you for booking with <strong>Savanna & Beyond Travels</strong>. Your reservation has been successfully confirmed.</p>
+            
+            <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 4px 0; color: #1e293b;"><strong>Reference Code:</strong> <span style="font-family: monospace; color: #0F766E; font-size: 16px;">${referenceCode}</span></p>
+              <p style="margin: 4px 0; color: #1e293b;"><strong>Package:</strong> ${pkg.title}</p>
+              <p style="margin: 4px 0; color: #1e293b;"><strong>Destination:</strong> ${pkg.destination}</p>
+              <p style="margin: 4px 0; color: #1e293b;"><strong>Travel Date:</strong> ${travelDate}</p>
+              <p style="margin: 4px 0; color: #1e293b;"><strong>Guests:</strong> ${guestCount}</p>
+              <p style="margin: 4px 0; color: #1e293b;"><strong>Total Amount:</strong> ${selectedCurrency} ${Number(totalAmount).toLocaleString()}</p>
+            </div>
 
-    transporter.sendMail(mailOptions, (error) => {
-      if (error) console.error('Email error (skipping if unconfigured):', error.message);
-    });
+            <p style="color: #475569; font-size: 14px;">Our concierge team will reach out via phone/WhatsApp (${customerPhone}) 48 hours prior to your trip.</p>
+            <p style="color: #94a3b8; font-size: 12px; margin-top: 30px; border-top: 1px solid #e2e8f0; pt-4;">Savanna & Beyond Travels • Nairobi & Mombasa, Kenya</p>
+          </div>
+        `
+      });
+      console.log('✅ Resend confirmation email sent successfully.');
+    } catch (emailErr) {
+      console.error('❌ Resend email error:', emailErr);
+    }
 
     res.status(201).json({
       success: true,
