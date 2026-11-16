@@ -272,13 +272,13 @@ app.post('/api/bookings', async (req, res) => {
     // Send Email notification via Resend API
     try {
       await resend.emails.send({
-        from: 'Savanna & Beyond <onboarding@resend.dev>',
+        from: 'open sky adventures <onboarding@resend.dev>',
         to: customerEmail.trim(),
         subject: `Booking Confirmed: ${pkg.title} (${referenceCode})`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
             <h2 style="color: #0B1D3A; margin-top: 0;">Jambo, ${customerName}!</h2>
-            <p style="color: #475569;">Thank you for booking with <strong>Savanna & Beyond Travels</strong>. Your reservation has been successfully confirmed.</p>
+            <p style="color: #475569;">Thank you for booking with <strong>open sky adventures</strong>. Your reservation has been successfully confirmed.</p>
             
             <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin: 20px 0;">
               <p style="margin: 4px 0; color: #1e293b;"><strong>Reference Code:</strong> <span style="font-family: monospace; color: #0F766E; font-size: 16px;">${referenceCode}</span></p>
@@ -290,7 +290,7 @@ app.post('/api/bookings', async (req, res) => {
             </div>
 
             <p style="color: #475569; font-size: 14px;">Our concierge team will reach out via phone/WhatsApp (${customerPhone}) 48 hours prior to your trip.</p>
-            <p style="color: #94a3b8; font-size: 12px; margin-top: 30px; border-top: 1px solid #e2e8f0; pt-4;">Savanna & Beyond Travels • Nairobi & Mombasa, Kenya</p>
+            <p style="color: #94a3b8; font-size: 12px; margin-top: 30px; border-top: 1px solid #e2e8f0; pt-4;">open sky adventures • Nairobi & Mombasa, Kenya</p>
           </div>
         `
       });
@@ -400,5 +400,5 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🌍 Savanna & Beyond Travels running at http://localhost:${PORT}`);
+  console.log(`🌍 open sky adventures running at http://localhost:${PORT}`);
 });
